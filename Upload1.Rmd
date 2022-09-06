@@ -1,0 +1,239 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+
+Limpieza y analisis exploratorio de los datos de: https://www.kaggle.com/rdoume/beerreviews 
+
+```{r echo=TRUE, message=FALSE, warning=FALSE}
+# https://cran.r-project.org/web/packages/ggplot2/index.html
+if (!require('ggplot2')) install.packages('ggplot2'); library('ggplot2')
+# https://cran.r-project.org/web/packages/dplyr/index.html
+if (!require('dplyr')) install.packages('dplyr'); library('dplyr')
+
+# Cargamos el juego de datos
+totalData <- read.csv('D:/Data/beer_reviews.csv',stringsAsFactors = FALSE)
+filas=dim(totalData)[1]
+```
+
+Verificamos la estructura del juego de datos principal.
+```{r}
+str(totalData)
+```
+
+Tenemos 1586614 registros y 13 variables.
+*brewery_id: Valor numérico utilizado como identificador de la cervecería.
+*brewery_name: String con el nombre de la cervecería.
+*review_time: Fecha del momento de la review.
+*review_overall: Valor numérico con la nota media total de la cerveza.
+*review_aroma: Valor numérico con la nota media del aroma de la cerveza.
+*review_appearance: Valor numérico con la nota media de la apariencia.
+*review_profilename: String con el nombre de la persona que ha dejado la review
+*beer_style: string con el nombre del tipo de cerveza
+*review_palate: Valor numérico que indica la nota media del paladar
+*review_taste: Valor numérico que indica la nota media del sabor
+*beer_name: String con el nombre de la cerveza
+*beer_abv:Numérico que indica la cantidad de alcohol por volumen
+*beer_beerid:Valor numérico utilizado como identificador de la cerveza.
+
+```{r}
+summary(totalData)
+```
+
+Localizamos las estadísticas de valores vacíos.
+```{r}
+colSums(is.na(totalData))
+colSums(totalData=="")
+```
+
+Tenemos <50% del total de datos perdidos para la variable beer_abv, osea que los rellenamos asignando la media de los valores conocidos de esta variable. 
+```{r}
+totalData$beer_abv[is.na(totalData$beer_abv )] <- mean(totalData$beer_abv ,na.rm=T)
+```
+
+Ahora asignaremos "desconocido" a aquellos valores ausentes para las variables brewery_name y review_profilename que son las que hemos observado que no estaban completas, faltan 15 y 348 respectivamente.
+```{r}
+totalData$brewery_name[totalData$brewery_name==""] <- "Unknown"
+totalData$review_profilename[totalData$review_profilename==""] <- "Unknown"
+```
+
+Volvemos a observar las estadísticas para confirmar que los cambios se han realizado debidamente.
+```{r}
+colSums(is.na(totalData))
+colSums(totalData=="")
+```
+
+En nuestro caso vamos a optar por no normalizar ningún dato respectivo a las notas de las distintas reviews pues todos están localizados entre 0 y 5. Podríamos normalizar beer_abv pero al no tratarse de números enteros tendremos tanta variedad de números que no será práctico a la hora de realizar el análisis, por ello optaremos directamente por discretizar esta variable haciéndola mas útil para su uso.
+
+Voy a dividir beer_abv en tramos, procedo a discretizarlo y lo guardo en una variable nueva perc_alcohol. La razón de elección de los tramos es que vemos que entre 0 y 19 se concentran la mayoría de cervezas, mientras que a partir del 19 solo quedan algunas que son insignificantes en comparación, por lo que crearemos un único grupo para todas estas.
+```{r}
+totalData["perc_alcohol"] <- cut(totalData$beer_abv, breaks = c(0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,100), 
+labels = c("0-1", "1-2",
+                                                                                                     "2-3","3-4","4-5","5-6","6-7","7-8","8-9","9-10","10-11","11-12","12-13","13-14","14-15","15-16","16-17","17-18","18-19",">19"), include.lowest = FALSE)
+```
+
+Añadiremos una nueva variable util relativa a la calificación numérica de la cerveza. Este campo se calculará discretizando con un metodo simple de intervalos. Añadiremos el argumento include.lowest = TRUE para que la nota mínima este incluida en cada intervalo.
+```{r}
+totalData["calification"] <- cut(totalData$review_overall, breaks = c(0,3,3.5,4,4.5,5), labels = c("F", "D","C", "B","A"), include.lowest = TRUE)
+```
+
+Observamos los datos discretizados y comprobamos que se adaptan a lo que hemos definido.
+```{r}
+head(totalData)
+```
+
+Vemos como se agrupan las cervezas y sus calificaciones, obteniendo un plot que nos muestra para cada nota cuantas marcas de cerveza están en ese rango. Podemos ver que la nota que más se repite ha sido C.
+```{r}
+plot(totalData$calification ,main="Número de cervezas por nota",xlab="Calificación", ylab="Cantidad",col = "ivory")
+```
+
+También podemos observar que hay una mayoría de cervezas con un porcentaje de alcohol por volumen de entre 5-6(%)
+```{r}
+plot(totalData$perc_alcohol ,main="Número de cervezas por abv",xlab="Porcentaje alcohol por volumen", ylab="Cantidad",col = "ivory")
+```
+
+#COMENZAMOS EL ANÁLISIS VISUAL
+
+Podemos observar que las cervezas que más críticas han recibido son aquellas con un porcentaje alcoholico del 5-6%, este gráfico nos puede dar una idea de la cantidad de consumo de cerveza en función de su abv.
+```{r}
+ggplot(data=totalData[1:filas,],aes(x=perc_alcohol,fill=review_overall))+geom_bar()+ggtitle("Relación entre las cervezas por porcentaje de alcohol y las reviews recibidas")
+```
+
+```{r}
+ggplot(data=totalData[1:filas,],aes(x=perc_alcohol,fill=calification))+geom_bar()+ggtitle("Relación entre el porcentaje de alcohol y las notas de las reviews")
+```
+
+Para poder analizarlas mejor vamos a guardar el top5 de rangos de alcohol con más críticas y los vamos a comparar entre ellos
+Ahora veremos que el rango 5-6 ostenta el record de críticas y también el que mejores críticas ha recibido,pero curiosamente a pesar de ser la mas criticada no es la que peores notas ha obtenido, como sería logico pensar. Este puesto se lo lleva el rango 4-5. Además este último plot nos sirve para confirmar de forma visual lo antes mencionado, la mayoría de reviews han asignado una nota C.
+
+```{r}
+topalcoholiclvls <- head(data.frame(table(totalData$perc_alcohol) %>% 
+                                                                              as.data.frame() %>% 
+                                                                              arrange(desc(table(totalData$perc_alcohol)))),5)
+topalcoholiclvls
+
+ggplot(data=subset(totalData,perc_alcohol %in% c("5-6" , "4-5", "7-8", "6-7", "8-9")),aes(x=perc_alcohol,fill=calification=="A"))+geom_bar()+ggtitle("Relación entre el porcentaje de alcohol y las notas A recibidas")
+
+ggplot(data=subset(totalData,perc_alcohol %in% c("5-6" , "4-5", "7-8", "6-7", "8-9")),aes(x=perc_alcohol,fill=calification=="F"))+geom_bar()+ggtitle("Relación entre el porcentaje de alcohol y las notas F recibidas")
+
+ggplot(data=subset(totalData,perc_alcohol %in% c("5-6" , "4-5", "7-8", "6-7", "8-9")),aes(x=perc_alcohol,fill=calification))+geom_bar()+ggtitle("Relación entre el porcentaje de alcohol y las notas totales recibidas")
+```
+
+
+Mostraremos ahora todos los tipos de cerveza que tenemos, vemos que los que han obtenido más críticas son ininteligibles pues hay 104 estilos en total:
+```{r}
+ggplot(data=totalData[1:filas,],aes(x=beer_style,fill=calification))+geom_bar()+ggtitle("Relación entre tipo de cerveza y las reviews recibidas")
+```
+
+
+```{r}
+count(distinct(totalData, totalData$beer_style))
+```
+
+Por tanto daremos nombre a los 5 estilos más criticados y podremos ver también el número exacto de reviews recibidas en la variable Freq. 
+```{r}
+topbeerstyles <- head(data.frame(table(totalData$beer_style) %>% 
+                                 as.data.frame() %>% 
+                                 arrange(desc(table(totalData$beer_style)))),5)
+topbeerstyles
+```
+
+Mostramos también el gráfico que indica que de esas 5 la que más gusta en la "American IPA" pues es la que más notas A Y B tiene
+```{r}
+ggplot(data=subset(totalData,beer_style %in% c("American IPA" , "American Pale Ale (APA)", "American Double / Imperial IPA", "Russian Imperial Stout", "American Double / Imperial Stout")),aes(x=beer_style,fill=calification))+geom_bar()+ggtitle("Relación entre tipo de cerveza y las reviews totales recibidas")
+
+ggplot(data=subset(totalData,beer_style %in% c("American IPA" , "American Pale Ale (APA)", "American Double / Imperial IPA", "Russian Imperial Stout", "American Double / Imperial Stout")),aes(x=beer_style,fill=(calification=="A" || calification=="B")))+geom_bar()+ggtitle("Relación entre tipo de cerveza y las reviews A y B recibidas")
+```
+
+Dentro de esos 5 estilos veremos como se distribuyen las cervezas y que rango de alcohol hay en cada uno de ellos. Podemos ver que el estilo de cerveza "American Pale Ale" está formado unicamente por cervezas en un rango alcohólico de 2-10(%) mientras que la "Russian Imperial Stout" y la "American Double / Imperial Stout" engloban el rango de 5-19(%)
+```{r}
+ggplot(subset(totalData,beer_style %in% c("American IPA" , "American Pale Ale (APA)", "American Double / Imperial IPA", "Russian Imperial Stout", "American Double / Imperial Stout"))) + 
+    geom_line(aes(perc_alcohol, beer_style, group=beer_style, colour=beer_style))
+```
+
+Consultaremos ahora cual es nuestro top de "reviewers". El usuario que más reviews ha escrito es "northyorksammy" con la aplastante cifra de 5817.
+```{r}
+topreviewers <- head(data.frame(table(totalData$review_profilename) %>% 
+                                                                       as.data.frame() %>% 
+                                                                       arrange(desc(table(totalData$review_profilename)))),5)
+topreviewers
+```
+
+Vemos que a pesar de que nuestro top de beer_style cubre tipos de cerveza de entre 1 y 19(% abv) en total, nuestro usuario con más reviews no ha probado ninguna del rango 1-3(%), este rango solo está disponible en el tipo "American pale Ale" y "American IPA" por lo que podemos asegurar que aunque ostenta el record de reviews, no ha probado todas las del top5 más consumidas.
+```{r}
+ggplot(subset((subset(totalData,beer_style %in% c("American IPA" , "American Pale Ale (APA)", "American Double / Imperial IPA", "Russian Imperial Stout", "American Double / Imperial Stout"))),review_profilename  %in% c("northyorksammy"))) + geom_line(aes(perc_alcohol, review_profilename, group=review_profilename, colour=review_profilename))
+```   
+    
+Escogeremos ahora un usuario menos activo, con 671 críticas tenemos a "adrenaline", vamos ahora a ver la distribución de notas que ha dado este usuario a la cerveza más gustada entre el resto de usuarios, la "American IPA". Observamos que curiosamente no ha puesto una nota mayor que B entre ese tipo de cervezas, aunque tampoco ha puesto ninguna F, entendemos pues que no le encantan las cervezas de este estilo pero tampoco las aborrece.
+```{r}
+ggplot(subset((subset(totalData,beer_style %in% c("American IPA"))),review_profilename  %in% c("andrenaline"))) + geom_line(aes(calification, review_profilename, group=review_profilename, colour=review_profilename))
+```      
+
+Observaremos ahora las cervezas más criticadas, y cual es la más popular entre ellas.
+```{r}
+topbeers <- head(data.frame(table(totalData$beer_name) %>% 
+                                                                 as.data.frame() %>% 
+                                                                 arrange(desc(table(totalData$beer_name)))),5)
+topbeers
+``` 
+```{r}
+ggplot(data=subset(totalData,beer_name %in% c("90 Minute IPA" , "India Pale Ale", "Old Rasputin Russian Imperial Stout", "Sierra Nevada Celebration Ale", "Two Hearted Ale")),aes(x=beer_name,fill=calification))+geom_bar()+ggtitle("Relación entre tipo de cerveza y las reviews recibidas")
+``` 
+
+Si llevamos el análisis un poco mas allá veremos que la que mayor cantidad de buenas notas la recibe la cerveza "90 Minute IPA"
+```{r}
+ggplot(data=subset(totalData,beer_name %in% c("90 Minute IPA" , "India Pale Ale", "Old Rasputin Russian Imperial Stout", "Sierra Nevada Celebration Ale", "Two Hearted Ale")),aes(x=beer_name,fill=(calification=="A" || calification=="B")))+geom_bar()+ggtitle("Relación entre tipo de cerveza y las reviews recibidas")
+``` 
+
+Respecto a las cervecerías que tenemos, observamos que "Boston Beer Company (Samuel Adams)" es la más popular entre ellas, sin embargo es la que menos notas A ha conseguido.
+```{r}
+ggplot(data=subset(totalData,brewery_name %in% c("Boston Beer Company (Samuel Adams)" , "Dogfish Head Brewery", "Stone Brewing Co.", "Sierra Nevada Brewing Co.", "Bell's Brewery, Inc.")),aes(x=brewery_name,fill=(calification)))+geom_bar()+ggtitle("Relación entre la cervecería y las notas A recibidas")
+
+ggplot(data=subset(totalData,brewery_name %in% c("Boston Beer Company (Samuel Adams)" , "Dogfish Head Brewery", "Stone Brewing Co.", "Sierra Nevada Brewing Co.", "Bell's Brewery, Inc.")),aes(x=brewery_name,fill=(calification=="A")))+geom_bar()+ggtitle("Relación entre la cervecería y las reviews recibidas")
+``` 
+
+Relacionamos ahora el topcervecerías con el topcervezas con la intención de ver como han catalogado los clientes estas cervezas en estas cervecerías y observamos con sorpresa que "Boston Beer Company (Samuel Adams)" y "Stone Brewing Co." no comercializan ninguna de las cervezas del top. Aún así haremos una query para asegurar que el gráfico es correcto, y en efecto, se confirma.
+```{r}
+ggplot(subset((subset(totalData,beer_name %in% c("90 Minute IPA" , "India Pale Ale", "Old Rasputin Russian Imperial Stout", "Sierra Nevada Celebration Ale", "Two Hearted Ale"))),brewery_name  %in% c("Boston Beer Company (Samuel Adams)","Dogfish Head Brewery","Stone Brewing Co.","Sierra Nevada Brewing Co.","Bell's Brewery, Inc."))) + geom_line(aes(calification, brewery_name, group=brewery_name, colour=brewery_name))
+
+subset(totalData,beer_name %in% c("90 Minute IPA" , "India Pale Ale", "Old Rasputin Russian Imperial Stout", "Sierra Nevada Celebration Ale", "Two Hearted Ale") & brewery_name  %in% c("Boston Beer Company (Samuel Adams)","Stone Brewing Co."))
+``` 
+
+Pasamos ahora a comprobar correlaciones entre los datos. Vemos que los gráficos que salen al relacionar el aroma y el overall son similares. Esto puede indicar correlación entre ellos algo previsible en base a los nombres de variable
+```{r}
+ggplot(data=totalData[1:filas,],aes(x=review_appearance,fill=calification))+geom_bar()+ggtitle("Relación entre la nota de apariencia y las veces que ha recibido reviews")
+```
+```{r}
+ggplot(data=totalData[1:filas,],aes(x=review_aroma,fill=calification))+geom_bar()+ggtitle("Relación entre la nota al aroma y las veces que ha recibido reviews")
+```
+
+
+```{r}
+if (!require('tidyverse')) install.packages('tidyverse'); library('tidyverse')
+```
+
+Ahora miraremos el coeficiente de correlación de las variables review_taste y review_aroma. Dado que el sentido del gusto y del olfato están muy relacionados podemos suponer que estas dos variables tendrán un nivel de correlacion alto. Hecho que se confirma con los resultados del coeficiente de Pearson.
+```{r}
+cor.test(x = totalData$review_aroma, y = totalData$review_taste, method = "pearson")
+```
+
+También podremos comprobar que las dos variables que más correlación tienen son review_overall y review_taste, por contra la que menos correlación tiene con review_overall será review_appearance, a pesar de ello todas las variables referentes a las reviews(exceptuando review_time y review_profilename) tienen una relación lineal entre ellas. Podríamos considerar que estamos ante un caso de datos redundantes.
+```{r}
+cor.test(x = totalData$review_overall, y = totalData$review_taste, method = "pearson")
+cor.test(x = totalData$review_overall, y = totalData$review_appearance, method = "pearson")
+```
+
+Por otro lado comprobaremos la correlación entre las variables review_time y beer_abv, las cuales no deberían tener ningún tipo de correlación a priori.
+```{r}
+cor.test(x = totalData$beer_abv, y = totalData$review_time, method = "pearson")
+```
+
+Mostramos el diagrama de dispersión de estas, aunque parezca que si que hay cierta lógica ahora que conocemos nuestros datos podemos asegurar que no es así, la unica razón de que se acumulen los puntos en esa zona es que la gran mayoría de nuestras cervezas se concentran en un rango de beer_abv de entre 1 y 20, pero no tienen ninguna relación lineal con el tiempo de review.
+```{r}
+ggplot(data = totalData, aes(x = beer_abv, y = log(review_time))) + geom_point(color = "gray30") + geom_smooth(color = "firebrick") + theme_bw() +ggtitle("Correlación entre el grado de abv y el tiempo de review")
+```
+
+#CONCLUSIONES FINALES
+Podemos concluir que los datos son de buena calidad, se pueden utilizar para obtener conocimiento de ellos y las posibilidades que ofrecen van mas allá de lo aquí demostrado. Hemos concluido que la nota mas repetida ha sido la C, que los 5 estilos de cerveza más aceptados se mueven en unos valores de alcohol de entre 1 y 19, donde la cerveza de tipo "American IPA" es la más gustada y el gradiente alcohólico mayormente aceptado es el 5-6(%). La cervecería que más clientes mueve es "Boston Beer Company (Samuel Adams)" pero del top5 cervecerías es la que menos volumen de notas A en sus productos concentra. El factor que más tienen en cuenta los usuarios a la hora de opinar sobre una cerveza es el gusto y el que menos tienen en cuenta será la apariencia. Hemos demostrado que hay correlación entre los atributos utilizados en la nota de las reviews, deberemos determinar si estan "muy" correlacionados y si así lo consideramos podríamos eliminar aquellos atributos que menos correlación tengan y quedarnos únicamente con el mejor.
+
